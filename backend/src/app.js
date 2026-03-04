@@ -20,4 +20,12 @@ app.get("/", (req, res) => {
   res.send("API running...");
 });
 
+app.get("/api/health", (req, res) => {
+  res.status(200).json({ 
+    status: "ok", 
+    message: "Invenia AI Backend is running",
+    timestamp: new Date().toISOString()
+  });
+});
+
 export default app;
