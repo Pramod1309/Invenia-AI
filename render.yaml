@@ -1,0 +1,37 @@
+services:
+  # Backend API Service
+  - type: web
+    name: invenia-backend
+    env: node
+    repo: https://github.com/YOUR_USERNAME/YOUR_REPO.git
+    rootDir: backend
+    buildCommand: "npm install --production"
+    startCommand: "npm start"
+    plan: free
+    region: oregon
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: HOST
+        value: 0.0.0.0
+
+  # Frontend Web Service (Expo Web)
+  - type: web
+    name: invenia-frontend
+    env: static
+    repo: https://github.com/YOUR_USERNAME/YOUR_REPO.git
+    rootDir: frontend
+    buildCommand: "npm install && npm run build:web"
+    staticPublishPath: ./dist
+    plan: free
+    region: oregon
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: EXPO_PUBLIC_API_URL
+        value: https://invenia-backend.onrender.com/api

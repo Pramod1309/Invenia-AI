@@ -1,6 +1,14 @@
 import sqlite3 from 'sqlite3';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const DB_PATH = './database.sqlite';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Use Render's persistent data directory or fallback to local
+const DB_PATH = process.env.RENDER_DATA_PATH 
+  ? path.join(process.env.RENDER_DATA_PATH, 'database.sqlite')
+  : path.join(__dirname, 'database.sqlite');
 
 class Database {
   constructor() {

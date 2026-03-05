@@ -4,9 +4,29 @@ import routes from "./routes/index.js";
 
 const app = express();
 
-// CORS configuration for mobile development
+// CORS configuration for development and production
+const allowedOrigins = [
+  'http://localhost:19006', // Expo web development
+  'http://localhost:3000',  // React development
+  'https://invenia-frontend.onrender.com', // Render production
+  'exp://172.31.28.27:8081', // Expo mobile development
+];
+
 app.use(cors({
-  origin: '*', // Allow all origins for development
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (process.env.NODE_ENV === 'development') {
+      return callback(null, true); // Allow all origins in development
+    }
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,

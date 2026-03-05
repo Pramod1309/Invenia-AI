@@ -13,7 +13,7 @@ const getLocalIP = () => {
 
 const API_BASE_URL = __DEV__ 
   ? (Platform.OS === 'web' ? 'http://localhost:5000/api' : getLocalIP())
-  : 'https://your-production-api.com/api';
+  : (process.env.EXPO_PUBLIC_API_URL || 'https://invenia-backend.onrender.com/api');
 
 console.log('API_BASE_URL:', API_BASE_URL, 'Platform:', Platform.OS);
 
