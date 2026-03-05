@@ -3,7 +3,7 @@ services:
   - type: web
     name: invenia-backend
     env: node
-    repo: https://github.com/YOUR_USERNAME/YOUR_REPO.git
+    repo: https://github.com/Pramod1309/Invenia-AI.git
     rootDir: backend
     buildCommand: "npm install --production"
     startCommand: "npm start"
@@ -24,9 +24,9 @@ services:
   - type: web
     name: invenia-frontend
     env: static
-    repo: https://github.com/YOUR_USERNAME/YOUR_REPO.git
+    repo: https://github.com/Pramod1309/Invenia-AI.git
     rootDir: frontend
-    buildCommand: "npm install && npm run build:web"
+    buildCommand: "npm install && npx expo export:web"
     staticPublishPath: ./dist
     plan: free
     region: oregon
