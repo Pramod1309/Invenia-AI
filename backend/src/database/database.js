@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 // Use Render's persistent data directory or fallback to local
 const DB_PATH = process.env.RENDER_DATA_PATH 
   ? path.join(process.env.RENDER_DATA_PATH, 'database.sqlite')
-  : path.join(__dirname, 'database.sqlite');
+  : path.join(__dirname, '..', 'database.sqlite');
 
 class Database {
   constructor() {

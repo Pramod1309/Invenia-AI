@@ -8,6 +8,7 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:19006', // Expo web development
   'http://localhost:3000',  // React development
+  'http://localhost:8081',  // Expo web development (current)
   'https://invenia-frontend.onrender.com', // Render production
   'exp://172.31.28.27:8081', // Expo mobile development
 ];

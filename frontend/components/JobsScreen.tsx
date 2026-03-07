@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, FlatList, Alert, Modal, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, FlatList, Alert, Modal, TextInput, Dimensions, Platform } from 'react-native';
 import { api } from '../services/api';
+
+// Get screen dimensions for responsive design
+const { width, height } = Dimensions.get('window');
+const isTablet = width >= 768;
+const isDesktop = width >= 1024;
+const isMobile = width < 768;
 
 export default function JobsScreen({ userData }: { userData: any }) {
   const [selectedFilter, setSelectedFilter] = useState('all');
@@ -144,6 +150,35 @@ export default function JobsScreen({ userData }: { userData: any }) {
   };
 
   const handleDeleteJob = async (jobId: string) => {
+    console.log('🗑️ Delete button pressed for job ID:', jobId);
+    console.log('📱 About to show confirmation dialog');
+    
+    // Temporary: Direct API call for testing
+    console.log('🧪 TESTING: Making direct API call without confirmation');
+    try {
+      const response = await api.jobs.delete(jobId);
+      console.log('📡 Direct API response:', response);
+      
+      if (response.success) {
+        Alert.alert('Success', 'Job deleted successfully');
+        console.log('✅ Job deleted successfully, removing from local state');
+        // Remove job from local state immediately
+        setJobs(prevJobs => {
+          const updatedJobs = prevJobs.filter(job => job.id !== parseInt(jobId));
+          console.log('🔄 Jobs after deletion:', updatedJobs);
+          return updatedJobs;
+        });
+      } else {
+        console.log('❌ Delete failed:', response.message);
+        Alert.alert('Error', response.message || 'Failed to delete job');
+      }
+    } catch (error) {
+      console.error('❌ Error deleting job:', error);
+      Alert.alert('Error', 'Failed to delete job');
+    }
+    
+    // Original confirmation dialog (commented out for testing)
+    /*
     Alert.alert(
       'Delete Job',
       'Are you sure you want to delete this job? This action cannot be undone.',
@@ -151,28 +186,43 @@ export default function JobsScreen({ userData }: { userData: any }) {
         {
           text: 'Cancel',
           style: 'cancel',
+          onPress: () => {
+            console.log('❌ Delete cancelled by user');
+          },
         },
         {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
+            console.log('🚀 User confirmed delete, starting API call for job ID:', jobId);
             try {
               const response = await api.jobs.delete(jobId);
+              console.log('📡 Delete API response:', response);
+              
               if (response.success) {
                 Alert.alert('Success', 'Job deleted successfully');
+                console.log('✅ Job deleted successfully, removing from local state');
                 // Remove job from local state immediately
-                setJobs(prevJobs => prevJobs.filter(job => job.id !== parseInt(jobId)));
+                setJobs(prevJobs => {
+                  const updatedJobs = prevJobs.filter(job => job.id !== parseInt(jobId));
+                  console.log('🔄 Jobs after deletion:', updatedJobs);
+                  return updatedJobs;
+                });
               } else {
+                console.log('❌ Delete failed:', response.message);
                 Alert.alert('Error', response.message || 'Failed to delete job');
               }
             } catch (error) {
-              console.error('Error deleting job:', error);
+              console.error('❌ Error deleting job:', error);
               Alert.alert('Error', 'Failed to delete job');
             }
           },
         },
       ]
     );
+    
+    console.log('✅ Confirmation dialog should be visible now');
+    */
   };
 
   const handleViewDetails = async (job: any) => {
@@ -372,8 +422,11 @@ export default function JobsScreen({ userData }: { userData: any }) {
           <Text style={styles.aiButtonText}>🤖 AI Optimize</Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={[styles.secondaryButton, { backgroundColor: '#EF4444' }]}
-          onPress={() => handleDeleteJob(job.id.toString())}
+          style={[styles.secondaryButton, { backgroundColor: '#b3ef44' }]}
+          onPress={() => {
+            console.log('🔴 Delete button pressed!', 'Job ID:', job.id, 'Job ID type:', typeof job.id);
+            handleDeleteJob(job.id.toString());
+          }}
         >
           <Text style={styles.secondaryButtonText}>Delete</Text>
         </TouchableOpacity>
@@ -437,6 +490,8 @@ export default function JobsScreen({ userData }: { userData: any }) {
             </Text>
           </View>
         )}
+        numColumns={isDesktop ? 2 : 1}
+        columnWrapperStyle={isDesktop ? styles.row : undefined}
       />
 
       <TouchableOpacity 
@@ -1194,5 +1249,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#1F2937',
     lineHeight: 20,
+  },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
 });

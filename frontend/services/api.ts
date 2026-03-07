@@ -64,19 +64,29 @@ export const apiClient = {
 
   async delete(endpoint: string) {
     try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      const fullUrl = `${API_BASE_URL}${endpoint}`;
+      console.log('🗑️ API Client: Starting DELETE request to:', fullUrl);
+      console.log('🌐 API_BASE_URL:', API_BASE_URL);
+      console.log('📍 Endpoint:', endpoint);
+      
+      const response = await fetch(fullUrl, {
         method: 'DELETE',
       });
+      
+      console.log('📡 API Client: DELETE response status:', response.status);
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         const errorMessage = errorData.message || `HTTP error! status: ${response.status}`;
+        console.error('❌ API Client: DELETE request failed:', errorMessage);
         throw new Error(errorMessage);
       }
       
-      return await response.json();
+      const responseData = await response.json();
+      console.log('✅ API Client: DELETE request successful:', responseData);
+      return responseData;
     } catch (error) {
-      console.error('API Error:', error);
+      console.error('❌ API Client: DELETE request error:', error);
       throw error;
     }
   },

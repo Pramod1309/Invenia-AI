@@ -204,12 +204,15 @@ export const updateJob = async (req, res) => {
 // Delete a job
 export const deleteJob = async (req, res) => {
   try {
+    console.log('🗑️ Backend: Delete request received for job ID:', req.params.id);
     const { id } = req.params;
     const userId = req.user?.id || 1; // Default to user ID 1 for demo
 
+    console.log('🔍 Backend: Checking if job exists for ID:', parseInt(id));
     // Check if job exists and belongs to user
     const existingJob = await db.getJobById(parseInt(id));
     if (!existingJob) {
+      console.log('❌ Backend: Job not found');
       return res.status(404).json({
         success: false,
         message: 'Job not found',
@@ -217,13 +220,16 @@ export const deleteJob = async (req, res) => {
     }
 
     if (existingJob.createdBy !== userId) {
+      console.log('❌ Backend: Access denied for user:', userId, 'Job createdBy:', existingJob.createdBy);
       return res.status(403).json({
         success: false,
         message: 'Access denied',
       });
     }
 
+    console.log('✅ Backend: Deleting job with ID:', parseInt(id));
     await db.deleteJob(parseInt(id));
+    console.log('✅ Backend: Job deleted successfully');
 
     res.status(200).json({
       success: true,
@@ -231,7 +237,7 @@ export const deleteJob = async (req, res) => {
       data: { id: parseInt(id), deleted: true },
     });
   } catch (error) {
-    console.error('Error deleting job:', error);
+    console.error('❌ Backend: Error deleting job:', error);
     res.status(500).json({
       success: false,
       message: 'Error deleting job',
