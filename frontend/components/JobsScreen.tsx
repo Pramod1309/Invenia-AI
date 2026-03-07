@@ -1,5 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, FlatList, Alert, Modal, TextInput, Dimensions, Platform } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  ScrollView, 
+  TouchableOpacity, 
+  FlatList, 
+  Alert, 
+  Modal, 
+  TextInput,
+  Dimensions,
+  Platform,
+  ActivityIndicator
+} from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import * as DocumentPicker from 'expo-document-picker';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import { Audio } from 'expo-av';
 import { api } from '../services/api';
 
 // Get screen dimensions for responsive design
@@ -17,6 +34,10 @@ export default function JobsScreen({ userData }: { userData: any }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showApplyModal, setShowApplyModal] = useState(false);
+  const [showApplicationStages, setShowApplicationStages] = useState(false);
+  const [currentStage, setCurrentStage] = useState(1);
+  const [selectedJobForApply, setSelectedJobForApply] = useState<any>(null);
   const [jobs, setJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   
@@ -39,6 +60,33 @@ export default function JobsScreen({ userData }: { userData: any }) {
     requirements: [],
     skills: [],
   });
+
+  const [applicationForm, setApplicationForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    experience: '',
+    education: '',
+    coverLetter: '',
+    resume: '',
+  });
+
+  const [applicationStages, setApplicationStages] = useState({
+    resumeUploaded: false,
+    testCompleted: false,
+    interviewCompleted: false,
+  });
+
+  const [resumeFile, setResumeFile] = useState<any>(null);
+  const [testAnswers, setTestAnswers] = useState<any>({});
+  const [interviewResponses, setInterviewResponses] = useState<{question: string, answer: string}[]>([]);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [showCamera, setShowCamera] = useState(false);
+  const [audioRecording, setAudioRecording] = useState<Audio.Recording | null>(null);
+  const [audioUri, setAudioUri] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const cameraRef = useRef<any>(null);
 
   // Fetch jobs on component mount
   useEffect(() => {
@@ -246,6 +294,336 @@ export default function JobsScreen({ userData }: { userData: any }) {
     }
   };
 
+  const handleApplyNow = (job: any) => {
+    setSelectedJobForApply(job);
+    setShowApplyModal(true);
+    // Reset form
+    setApplicationForm({
+      name: '',
+      email: '',
+      phone: '',
+      experience: '',
+      education: '',
+      coverLetter: '',
+      resume: '',
+    });
+    // Reset stages
+    setApplicationStages({
+      resumeUploaded: false,
+      testCompleted: false,
+      interviewCompleted: false,
+    });
+    setCurrentStage(1);
+  };
+
+  const handleResumeUpload = async () => {
+    if (!resumeFile) {
+      Alert.alert('Error', 'Please select a file first');
+      return;
+    }
+
+    try {
+      console.log('Uploading resume:', resumeFile);
+      
+      // Handle file differently for web vs mobile
+      let formData;
+      
+      if (Platform.OS === 'web') {
+        // For web, use the blob directly
+        const response = await fetch(resumeFile.uri);
+        const blob = await response.blob();
+        formData = new FormData();
+        formData.append('resume', blob, resumeFile.name);
+        console.log('Blob size:', blob.size, 'Type:', blob.type);
+      } else {
+        // For mobile, use the file object
+        formData = new FormData();
+        formData.append('resume', {
+          uri: resumeFile.uri,
+          type: resumeFile.type,
+          name: resumeFile.name,
+        } as any);
+      }
+      
+      console.log('FormData created:', formData);
+      
+      // Upload file to backend
+      const uploadResponse = await api.upload.resume(formData);
+      
+      if (uploadResponse.success) {
+        // Update application stage with resume URL
+        const updateResponse = await api.applications.updateStage(
+          selectedJobForApply?.applicationId, 
+          'resume_uploaded', 
+          { resumeUrl: uploadResponse.data.url }
+        );
+        
+        if (updateResponse.success) {
+          setApplicationStages(prev => ({ ...prev, resumeUploaded: true }));
+          Alert.alert('Success', 'Resume uploaded successfully!');
+        }
+      } else {
+        Alert.alert('Error', uploadResponse.message || 'Failed to upload resume');
+      }
+    } catch (error) {
+      console.error('Error uploading resume:', error);
+      Alert.alert('Error', 'Failed to upload resume');
+    }
+  };
+
+  const handleTestSubmit = async () => {
+    try {
+      console.log('Submitting test answers:', testAnswers);
+      
+      // Submit test answers to backend
+      const response = await api.applications.submitTest(
+        selectedJobForApply?.applicationId, 
+        { testData: testAnswers }
+      );
+      
+      if (response.success) {
+        setApplicationStages(prev => ({ ...prev, testCompleted: true }));
+        Alert.alert('Success', 'Test submitted successfully!');
+      } else {
+        Alert.alert('Error', response.message || 'Failed to submit test');
+      }
+    } catch (error) {
+      console.error('Error submitting test:', error);
+      Alert.alert('Error', 'Failed to submit test');
+    }
+  };
+
+  const handleInterviewComplete = async () => {
+    try {
+      console.log('Submitting interview responses:', interviewResponses);
+      
+      // Submit interview responses to backend
+      const response = await api.applications.submitInterview(
+        selectedJobForApply?.applicationId, 
+        { interviewData: interviewResponses }
+      );
+      
+      if (response.success) {
+        setApplicationStages(prev => ({ ...prev, interviewCompleted: true }));
+        Alert.alert('Success', 'Interview completed successfully!');
+        
+        // Close modal after completion
+        setTimeout(() => {
+          setShowApplicationStages(false);
+          Alert.alert('Application Complete', 'Your application has been fully submitted. You will be contacted soon!');
+        }, 2000);
+      } else {
+        Alert.alert('Error', response.message || 'Failed to submit interview');
+      }
+    } catch (error) {
+      console.error('Error submitting interview:', error);
+      Alert.alert('Error', 'Failed to submit interview');
+    }
+  };
+
+  const nextStage = () => {
+    if (currentStage < 3) {
+      setCurrentStage(currentStage + 1);
+    }
+  };
+
+  const prevStage = () => {
+    if (currentStage > 1) {
+      setCurrentStage(currentStage - 1);
+    }
+  };
+
+  const isStageComplete = () => {
+    switch (currentStage) {
+      case 1:
+        return applicationStages.resumeUploaded;
+      case 2:
+        return applicationStages.testCompleted;
+      case 3:
+        return applicationStages.interviewCompleted;
+      default:
+        return false;
+    }
+  };
+
+  // Camera and Audio functions
+  const requestCameraAccess = async () => {
+    if (!cameraPermission?.granted) {
+      const permission = await requestCameraPermission();
+      if (!permission.granted) {
+        Alert.alert('Permission Required', 'Camera permission is required for video interview');
+        return false;
+      }
+    }
+    setShowCamera(true);
+    return true;
+  };
+
+  const startAudioRecording = async () => {
+    try {
+      console.log('Starting audio recording...');
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      setAudioRecording(recording);
+      setIsRecording(true);
+      console.log('Recording started');
+    } catch (error) {
+      console.error('Failed to start recording', error);
+      Alert.alert('Error', 'Failed to start audio recording');
+    }
+  };
+
+  const stopAudioRecording = async () => {
+    if (!audioRecording) return;
+    
+    try {
+      console.log('Stopping audio recording...');
+      await audioRecording.stopAndUnloadAsync();
+      const uri = audioRecording.getURI();
+      setAudioUri(uri);
+      setIsRecording(false);
+      setAudioRecording(null);
+      console.log('Recording stopped, URI:', uri);
+      
+      // Store the audio response
+      const currentResponse = interviewResponses[currentQuestionIndex] || { question: '', answer: '' };
+      setInterviewResponses(prev => {
+        const updated = [...prev];
+        updated[currentQuestionIndex] = {
+          ...currentResponse,
+          answer: uri || '' // Store audio URI as answer
+        };
+        return updated;
+      });
+    } catch (error) {
+      console.error('Failed to stop recording', error);
+      Alert.alert('Error', 'Failed to stop audio recording');
+    }
+  };
+
+  const takePicture = async () => {
+    if (!cameraRef.current) return;
+    
+    try {
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.8,
+        base64: false
+      });
+      console.log('Photo taken:', photo.uri);
+      
+      // Store the photo as part of interview response
+      const currentResponse = interviewResponses[currentQuestionIndex] || { question: '', answer: '' };
+      setInterviewResponses(prev => {
+        const updated = [...prev];
+        updated[currentQuestionIndex] = {
+          ...currentResponse,
+          answer: photo.uri || '' // Store photo URI as answer
+        };
+        return updated;
+      });
+      
+      setShowCamera(false);
+    } catch (error) {
+      console.error('Failed to take picture', error);
+      Alert.alert('Error', 'Failed to take picture');
+    }
+  };
+
+  // File picker handler
+  const handlePickDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        ],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        console.log('Selected file:', file);
+        
+        // Create file object for upload
+        const fileObj = {
+          uri: file.uri,
+          name: file.name,
+          type: file.mimeType,
+          size: file.size || 0,
+        };
+        
+        setResumeFile(fileObj);
+        Alert.alert('Success', `File "${file.name}" selected successfully!`);
+      }
+    } catch (error) {
+      console.error('Error picking document:', error);
+      Alert.alert('Error', 'Failed to pick document. Please try again.');
+    }
+  };
+
+  const handleSubmitApplication = async () => {
+    if (!applicationForm.name || !applicationForm.email || !applicationForm.phone) {
+      Alert.alert('Error', 'Please fill in all required fields');
+      return;
+    }
+
+    try {
+      // Submit initial application to backend
+      const applicationData = {
+        jobId: parseInt(selectedJobForApply?.id), // Convert to integer for SQLite
+        applicantInfo: applicationForm,
+        status: 'pending_stages',
+        createdAt: new Date().toISOString(),
+      };
+
+      console.log('Submitting application:', applicationData);
+      
+      // Submit to API
+      const response = await api.applications.create(applicationData);
+      
+      if (response.success) {
+        Alert.alert('Success', 'Application submitted! Please complete the next steps.');
+        setShowApplyModal(false);
+        
+        // Show application stages modal
+        setCurrentStage(1);
+        setShowApplicationStages(true);
+        setSelectedJobForApply({ 
+          ...selectedJobForApply, 
+          applicationId: response.data.id // SQLite returns numeric id
+        });
+        
+        // Reset form
+        setApplicationForm({
+          name: '',
+          email: '',
+          phone: '',
+          experience: '',
+          education: '',
+          coverLetter: '',
+          resume: '',
+        });
+        
+        // Increment applications count locally for immediate feedback
+        if (selectedJobForApply) {
+          setJobs(prevJobs => 
+            prevJobs.map(j => 
+              j.id === selectedJobForApply.id ? { ...j, applications: j.applications + 1 } : j
+            )
+          );
+        }
+      } else {
+        Alert.alert('Error', response.message || 'Failed to submit application');
+      }
+    } catch (error) {
+      console.error('Error submitting application:', error);
+      Alert.alert('Error', 'Failed to submit application');
+    }
+  };
+
   const handleEditJob = (job: any) => {
     setSelectedJob(job);
     setShowEditModal(true);
@@ -402,34 +780,97 @@ export default function JobsScreen({ userData }: { userData: any }) {
         </View>
       </View>
 
-      <View style={styles.jobActions}>
-        <TouchableOpacity 
-          style={styles.primaryButton}
-          onPress={() => handleViewDetails(job)}
-        >
-          <Text style={styles.primaryButtonText}>View Details</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.secondaryButton}
-          onPress={() => handleEditJob(job)}
-        >
-          <Text style={styles.secondaryButtonText}>Edit Job</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.aiButton}
-          onPress={() => {/* AI Optimize - keep as placeholder */}}
-        >
-          <Text style={styles.aiButtonText}>🤖 AI Optimize</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.secondaryButton, { backgroundColor: '#b3ef44' }]}
-          onPress={() => {
-            console.log('🔴 Delete button pressed!', 'Job ID:', job.id, 'Job ID type:', typeof job.id);
-            handleDeleteJob(job.id.toString());
-          }}
-        >
-          <Text style={styles.secondaryButtonText}>Delete</Text>
-        </TouchableOpacity>
+      <View style={isMobile ? styles.jobActionsMobile : styles.jobActions}>
+        {isMobile ? (
+          // Mobile layout - 2 rows of buttons with shorter text
+          <View style={styles.mobileActionsRow}>
+            <TouchableOpacity 
+              style={styles.primaryButton}
+              onPress={() => handleViewDetails(job)}
+            >
+              <Text style={styles.primaryButtonText}>Details</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.applyButton}
+              onPress={() => handleApplyNow(job)}
+            >
+              <Text style={styles.applyButtonText}>Apply</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          // Desktop/Tablet layout - single row with full text
+          <>
+            <TouchableOpacity 
+              style={styles.primaryButton}
+              onPress={() => handleViewDetails(job)}
+            >
+              <Text style={styles.primaryButtonText}>View Details</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.applyButton}
+              onPress={() => handleApplyNow(job)}
+            >
+              <Text style={styles.applyButtonText}>Apply Now</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.secondaryButton}
+              onPress={() => handleEditJob(job)}
+            >
+              <Text style={styles.secondaryButtonText}>Edit Job</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.aiButton}
+              onPress={() => {/* AI Optimize - keep as placeholder */}}
+            >
+              <Text style={styles.aiButtonText}>🤖 AI Optimize</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.secondaryButton, { backgroundColor: '#b3ef44' }]}
+              onPress={() => {
+                console.log('🔴 Delete button pressed!', 'Job ID:', job.id, 'Job ID type:', typeof job.id);
+                handleDeleteJob(job.id.toString());
+              }}
+            >
+              <Text style={styles.secondaryButtonText}>Delete</Text>
+            </TouchableOpacity>
+          </>
+        )}
+        {!isMobile && (
+          <TouchableOpacity 
+            style={[styles.secondaryButton, { backgroundColor: '#b3ef44' }]}
+            onPress={() => {
+              console.log('🔴 Delete button pressed!', 'Job ID:', job.id, 'Job ID type:', typeof job.id);
+              handleDeleteJob(job.id.toString());
+            }}
+          >
+            <Text style={styles.secondaryButtonText}>Delete</Text>
+          </TouchableOpacity>
+        )}
+        {isMobile && (
+          <View style={styles.mobileActionsRow}>
+            <TouchableOpacity 
+              style={styles.secondaryButton}
+              onPress={() => handleEditJob(job)}
+            >
+              <Text style={styles.secondaryButtonText}>Edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.aiButton}
+              onPress={() => {/* AI Optimize - keep as placeholder */}}
+            >
+              <Text style={styles.aiButtonText}>🤖 AI</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.secondaryButton, { backgroundColor: '#b3ef44' }]}
+              onPress={() => {
+                console.log('🔴 Delete button pressed!', 'Job ID:', job.id, 'Job ID type:', typeof job.id);
+                handleDeleteJob(job.id.toString());
+              }}
+            >
+              <Text style={styles.secondaryButtonText}>Del</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -803,6 +1244,411 @@ export default function JobsScreen({ userData }: { userData: any }) {
           </View>
         </View>
       </Modal>
+
+      {/* Apply for Job Modal */}
+      <Modal
+        visible={showApplyModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Apply for {selectedJobForApply?.title}</Text>
+            <TouchableOpacity onPress={() => setShowApplyModal(false)}>
+              <Text style={styles.closeButton}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          
+          <ScrollView style={styles.modalContent}>
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Full Name *</Text>
+              <TextInput
+                style={styles.input}
+                value={applicationForm.name}
+                onChangeText={(text) => setApplicationForm(prev => ({ ...prev, name: text }))}
+                placeholder="Enter your full name"
+              />
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Email Address *</Text>
+              <TextInput
+                style={styles.input}
+                value={applicationForm.email}
+                onChangeText={(text) => setApplicationForm(prev => ({ ...prev, email: text }))}
+                placeholder="Enter your email address"
+                keyboardType="email-address"
+              />
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Phone Number *</Text>
+              <TextInput
+                style={styles.input}
+                value={applicationForm.phone}
+                onChangeText={(text) => setApplicationForm(prev => ({ ...prev, phone: text }))}
+                placeholder="Enter your phone number"
+                keyboardType="phone-pad"
+              />
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Years of Experience</Text>
+              <TextInput
+                style={styles.input}
+                value={applicationForm.experience}
+                onChangeText={(text) => setApplicationForm(prev => ({ ...prev, experience: text }))}
+                placeholder="e.g. 3 years"
+              />
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Education</Text>
+              <TextInput
+                style={styles.input}
+                value={applicationForm.education}
+                onChangeText={(text) => setApplicationForm(prev => ({ ...prev, education: text }))}
+                placeholder="e.g. Bachelor's in Computer Science"
+              />
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Cover Letter</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                value={applicationForm.coverLetter}
+                onChangeText={(text) => setApplicationForm(prev => ({ ...prev, coverLetter: text }))}
+                placeholder="Tell us why you're interested in this position..."
+                multiline
+                numberOfLines={4}
+              />
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Resume/CV Link</Text>
+              <TextInput
+                style={styles.input}
+                value={applicationForm.resume}
+                onChangeText={(text) => setApplicationForm(prev => ({ ...prev, resume: text }))}
+                placeholder="Link to your resume or portfolio"
+              />
+            </View>
+          </ScrollView>
+
+          <View style={styles.modalActions}>
+            <TouchableOpacity
+              style={[styles.button, styles.cancelButton]}
+              onPress={() => setShowApplyModal(false)}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.button, styles.createButton]}
+              onPress={handleSubmitApplication}
+            >
+              <Text style={styles.createButtonText}>Submit Application</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Application Stages Modal */}
+      <Modal
+        visible={showApplicationStages}
+        animationType="slide"
+        presentationStyle="pageSheet"
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Application Process</Text>
+            <TouchableOpacity onPress={() => setShowApplicationStages(false)}>
+              <Text style={styles.closeButton}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {/* Progress Indicator */}
+          <View style={styles.progressContainer}>
+            <View style={styles.progressBar}>
+              <View style={[styles.progressStep, currentStage >= 1 && styles.progressStepActive]}>
+                <Text style={[styles.progressStepText, currentStage >= 1 && styles.progressStepTextActive]}>
+                  1
+                </Text>
+              </View>
+              <View style={[styles.progressLine, currentStage >= 2 && styles.progressLineActive]} />
+              <View style={[styles.progressStep, currentStage >= 2 && styles.progressStepActive]}>
+                <Text style={[styles.progressStepText, currentStage >= 2 && styles.progressStepTextActive]}>
+                  2
+                </Text>
+              </View>
+              <View style={[styles.progressLine, currentStage >= 3 && styles.progressLineActive]} />
+              <View style={[styles.progressStep, currentStage >= 3 && styles.progressStepActive]}>
+                <Text style={[styles.progressStepText, currentStage >= 3 && styles.progressStepTextActive]}>
+                  3
+                </Text>
+              </View>
+            </View>
+            <View style={styles.progressLabels}>
+              <Text style={[styles.progressLabel, currentStage >= 1 && styles.progressLabelActive]}>
+                Resume Upload
+              </Text>
+              <Text style={[styles.progressLabel, currentStage >= 2 && styles.progressLabelActive]}>
+                Test
+              </Text>
+              <Text style={[styles.progressLabel, currentStage >= 3 && styles.progressLabelActive]}>
+                AI Interview
+              </Text>
+            </View>
+          </View>
+
+          <ScrollView style={styles.modalContent}>
+            {/* Stage 1: Resume Upload */}
+            {currentStage === 1 && (
+              <View style={styles.stageContainer}>
+                <Text style={styles.stageTitle}>📄 Upload Your Resume/CV</Text>
+                <Text style={styles.stageDescription}>
+                  Please upload your resume or CV to continue with the application process. 
+                  Accepted formats: PDF, DOC, DOCX (Max 5MB)
+                </Text>
+                
+                <View style={styles.uploadArea}>
+                  <TouchableOpacity 
+                    style={styles.uploadButton}
+                    onPress={handlePickDocument}
+                  >
+                    <Text style={styles.uploadButtonText}>📁 Choose File</Text>
+                  </TouchableOpacity>
+                  {resumeFile && (
+                    <View style={styles.fileInfo}>
+                      <Text style={styles.fileName}>{resumeFile.name}</Text>
+                      <Text style={styles.fileSize}>{Math.round(resumeFile.size / 1024)} KB</Text>
+                    </View>
+                  )}
+                </View>
+
+                <TouchableOpacity 
+                  style={[styles.button, styles.createButton, applicationStages.resumeUploaded && styles.buttonDisabled]}
+                  onPress={handleResumeUpload}
+                  disabled={applicationStages.resumeUploaded}
+                >
+                  <Text style={styles.createButtonText}>
+                    {applicationStages.resumeUploaded ? '✓ Resume Uploaded' : 'Upload Resume'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Stage 2: Written/Computer Test */}
+            {currentStage === 2 && (
+              <View style={styles.stageContainer}>
+                <Text style={styles.stageTitle}>📝 Skills Assessment Test</Text>
+                <Text style={styles.stageDescription}>
+                  Please answer the following questions to assess your skills and qualifications 
+                  for this position.
+                </Text>
+                
+                <View style={styles.testContainer}>
+                  <View style={styles.questionBlock}>
+                    <Text style={styles.question}>1. What is your experience level with React Native?</Text>
+                    <View style={styles.optionsContainer}>
+                      {['Beginner', 'Intermediate', 'Advanced', 'Expert'].map((option: string, index: number) => (
+                        <TouchableOpacity 
+                          key={index}
+                          style={[styles.option, testAnswers.q1 === option && styles.optionSelected]}
+                          onPress={() => setTestAnswers((prev: any) => ({ ...prev, q1: option }))}
+                        >
+                          <Text style={styles.optionText}>{option}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
+                  <View style={styles.questionBlock}>
+                    <Text style={styles.question}>2. How many years of experience do you have in mobile development?</Text>
+                    <TextInput
+                      style={styles.testInput}
+                      value={testAnswers.q2 || ''}
+                      onChangeText={(text) => setTestAnswers((prev: any) => ({ ...prev, q2: text }))}
+                      placeholder="Enter number of years"
+                      keyboardType="numeric"
+                    />
+                  </View>
+
+                  <View style={styles.questionBlock}>
+                    <Text style={styles.question}>3. Describe a challenging project you've worked on:</Text>
+                    <TextInput
+                      style={[styles.testInput, styles.textArea]}
+                      value={testAnswers.q3 || ''}
+                      onChangeText={(text) => setTestAnswers((prev: any) => ({ ...prev, q3: text }))}
+                      placeholder="Describe your project..."
+                      multiline
+                      numberOfLines={4}
+                    />
+                  </View>
+                </View>
+
+                <TouchableOpacity 
+                  style={[styles.button, styles.createButton, applicationStages.testCompleted && styles.buttonDisabled]}
+                  onPress={handleTestSubmit}
+                  disabled={applicationStages.testCompleted}
+                >
+                  <Text style={styles.createButtonText}>
+                    {applicationStages.testCompleted ? '✓ Test Completed' : 'Submit Test'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Stage 3: AI Interview */}
+            {currentStage === 3 && (
+              <View style={styles.stageContainer}>
+                <Text style={styles.stageTitle}>🤖 AI Interview</Text>
+                <Text style={styles.stageDescription}>
+                  Please answer the following questions. The AI will analyze your responses 
+                  and provide feedback. Make sure you have camera and microphone access enabled.
+                </Text>
+                
+                <View style={styles.interviewContainer}>
+                  <View style={styles.questionBlock}>
+                    <Text style={styles.question}>1. Tell us about yourself and your experience.</Text>
+                    <View style={styles.recordingControls}>
+                      <TouchableOpacity 
+                        style={[styles.recordButton, isRecording && styles.recordButtonActive]}
+                        onPress={isRecording ? stopAudioRecording : startAudioRecording}
+                      >
+                        <Text style={styles.recordButtonText}>
+                          {isRecording ? '⏹️ Stop Recording' : '🎤 Start Recording'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.cameraButton}
+                        onPress={requestCameraAccess}
+                      >
+                        <Text style={styles.cameraButtonText}>📷 Take Photo</Text>
+                      </TouchableOpacity>
+                    </View>
+                    {isRecording && (
+                      <Text style={styles.recordingText}>Recording... Speak clearly</Text>
+                    )}
+                    {audioUri && (
+                      <View style={styles.audioPreview}>
+                        <Text style={styles.audioPreviewText}>📎 Audio Recorded</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.questionBlock}>
+                    <Text style={styles.question}>2. Why are you interested in this position?</Text>
+                    <View style={styles.recordingControls}>
+                      <TouchableOpacity 
+                        style={[styles.recordButton, isRecording && styles.recordButtonActive]}
+                        onPress={() => setCurrentQuestionIndex(1)}
+                      >
+                        <Text style={styles.recordButtonText}>📝 Answer Question 2</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <View style={styles.questionBlock}>
+                    <Text style={styles.question}>3. What makes you a good fit for this role?</Text>
+                    <View style={styles.recordingControls}>
+                      <TouchableOpacity 
+                        style={[styles.recordButton, isRecording && styles.recordButtonActive]}
+                        onPress={() => setCurrentQuestionIndex(2)}
+                      >
+                        <Text style={styles.recordButtonText}>📝 Answer Question 3</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+
+                <TouchableOpacity 
+                  style={[styles.button, styles.createButton, applicationStages.interviewCompleted && styles.buttonDisabled]}
+                  onPress={handleInterviewComplete}
+                  disabled={applicationStages.interviewCompleted}
+                >
+                  <Text style={styles.createButtonText}>
+                    {applicationStages.interviewCompleted ? '✓ Interview Completed' : 'Complete Interview'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </ScrollView>
+
+          <View style={styles.modalActions}>
+            <TouchableOpacity
+              style={[styles.button, styles.cancelButton]}
+              onPress={prevStage}
+              disabled={currentStage === 1}
+            >
+              <Text style={styles.cancelButtonText}>Previous</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.button, styles.createButton]}
+              onPress={nextStage}
+              disabled={currentStage === 3 || !isStageComplete()}
+            >
+              <Text style={styles.createButtonText}>
+                {currentStage === 3 ? 'Complete' : 'Next'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Camera Modal */}
+      <Modal
+        visible={showCamera}
+        animationType="slide"
+        presentationStyle="fullScreen"
+      >
+        <View style={styles.cameraContainer}>
+          <View style={styles.cameraHeader}>
+            <Text style={styles.cameraTitle}>📷 Take Photo</Text>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => setShowCamera(false)}
+            >
+              <Text style={styles.cancelButtonText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {cameraPermission?.granted ? (
+            <CameraView
+              ref={cameraRef}
+              style={styles.camera}
+              facing="front"
+            />
+          ) : (
+            <View style={styles.cameraPermissionContainer}>
+              <Text style={styles.cameraPermissionText}>
+                Camera permission is required to take photos
+              </Text>
+              <TouchableOpacity
+                style={styles.requestPermissionButton}
+                onPress={requestCameraAccess}
+              >
+                <Text style={styles.requestPermissionText}>Grant Permission</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          
+          <View style={styles.cameraFooter}>
+            <TouchableOpacity
+              style={styles.captureButton}
+              onPress={takePicture}
+              disabled={!cameraPermission?.granted}
+            >
+              <Text style={styles.captureButtonText}>📸 Capture</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => setShowCamera(false)}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -927,6 +1773,15 @@ const styles = StyleSheet.create({
     marginTop: 12,
     gap: 8,
   },
+  jobActionsMobile: {
+    flexDirection: 'column',
+    marginTop: 12,
+    gap: 8,
+  },
+  mobileActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   primaryButton: {
     backgroundColor: '#3B82F6',
     paddingHorizontal: 16,
@@ -935,6 +1790,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   primaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  applyButton: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+    flex: 1,
+  },
+  applyButtonText: {
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '600',
@@ -1253,5 +2121,283 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  // Application Stages Modal Styles
+  progressContainer: {
+    padding: 20,
+    backgroundColor: '#F8FAFC',
+  },
+  progressBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  progressStep: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#E5E7EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  progressStepActive: {
+    backgroundColor: '#3B82F6',
+  },
+  progressStepText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  progressStepTextActive: {
+    color: '#FFFFFF',
+  },
+  progressLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: '#E5E7EB',
+    marginHorizontal: 5,
+  },
+  progressLineActive: {
+    backgroundColor: '#3B82F6',
+  },
+  progressLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+  },
+  progressLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    textAlign: 'center',
+    flex: 1,
+  },
+  progressLabelActive: {
+    color: '#3B82F6',
+    fontWeight: '600',
+  },
+  stageContainer: {
+    padding: 20,
+  },
+  stageTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 10,
+  },
+  stageDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  uploadArea: {
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    padding: 30,
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    marginBottom: 20,
+  },
+  uploadButton: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 6,
+  },
+  uploadButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  fileInfo: {
+    marginTop: 15,
+    alignItems: 'center',
+  },
+  fileName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  fileSize: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 5,
+  },
+  buttonDisabled: {
+    backgroundColor: '#9CA3AF',
+    opacity: 0.6,
+  },
+  testContainer: {
+    marginBottom: 20,
+  },
+  questionBlock: {
+    marginBottom: 20,
+  },
+  question: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 15,
+  },
+  optionsContainer: {
+    flexDirection: 'column',
+    gap: 10,
+  },
+  option: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 6,
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  optionSelected: {
+    backgroundColor: '#3B82F6',
+    borderColor: '#3B82F6',
+  },
+  optionText: {
+    fontSize: 14,
+    color: '#374151',
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 6,
+    padding: 12,
+    fontSize: 14,
+    backgroundColor: '#FFFFFF',
+  },
+  testInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 6,
+    padding: 12,
+    fontSize: 14,
+    backgroundColor: '#FFFFFF',
+  },
+  interviewContainer: {
+    marginBottom: 20,
+  },
+  recordingControls: {
+    alignItems: 'center',
+  },
+  recordButton: {
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  recordButtonActive: {
+    backgroundColor: '#DC2626',
+  },
+  recordButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  recordingText: {
+    fontSize: 12,
+    color: '#EF4444',
+    marginTop: 10,
+    fontStyle: 'italic',
+  },
+  cameraButton: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 6,
+    alignItems: 'center',
+    marginLeft: 10,
+  },
+  cameraButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  audioPreview: {
+    backgroundColor: '#F3F4F6',
+    padding: 10,
+    borderRadius: 6,
+    marginTop: 10,
+    alignItems: 'center',
+  },
+  audioPreviewText: {
+    color: '#10B981',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  cameraContainer: {
+    flex: 1,
+    backgroundColor: '#000000',
+    justifyContent: 'center',
+  },
+  cameraHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  cameraTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  closeCameraText: {
+    color: '#FFFFFF',
+    fontSize: 20,
+  },
+  camera: {
+    flex: 1,
+    aspectRatio: 1,
+  },
+  cameraPermissionContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  cameraPermissionText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  requestPermissionButton: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 6,
+  },
+  requestPermissionText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  cameraFooter: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  captureButton: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 6,
+  },
+  captureButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

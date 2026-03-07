@@ -16,15 +16,28 @@ export const apiClient = {
     }
   },
 
-  async post(endpoint: string, data: any) {
+  async post(endpoint: string, data: any, options?: { headers?: any }) {
     try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      const config: RequestInit = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...options?.headers,
         },
-        body: JSON.stringify(data),
-      });
+      };
+
+      // Handle FormData (file uploads)
+      if (data instanceof FormData) {
+        // Let browser set Content-Type for FormData
+        const headers = { ...options?.headers };
+        delete headers['Content-Type'];
+        config.headers = headers;
+        config.body = data;
+      } else {
+        config.body = JSON.stringify(data);
+      }
+
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -109,5 +122,23 @@ export const api = {
     delete: (id: string) => apiClient.delete(`${API_ENDPOINTS.JOBS}/${id}`),
     getStats: () => apiClient.get(`${API_ENDPOINTS.JOBS}/stats`),
     getByStatus: (status: string) => apiClient.get(`${API_ENDPOINTS.JOBS}/filter?status=${status}`),
+  },
+  applications: {
+    create: (applicationData: any) => apiClient.post(API_ENDPOINTS.APPLICATIONS, applicationData),
+    getById: (id: string) => apiClient.get(`${API_ENDPOINTS.APPLICATIONS}/${id}`),
+    getByJobId: (jobId: string) => apiClient.get(`${API_ENDPOINTS.APPLICATIONS}/job/${jobId}`),
+    updateStage: (id: string, stage: string, data: any) => 
+      apiClient.put(`${API_ENDPOINTS.APPLICATIONS}/${id}/stage/${stage}`, data),
+    submitTest: (id: string, testData: any) => 
+      apiClient.post(`${API_ENDPOINTS.APPLICATIONS}/${id}/test`, testData),
+    submitInterview: (id: string, interviewData: any) => 
+      apiClient.post(`${API_ENDPOINTS.APPLICATIONS}/${id}/interview`, interviewData),
+    getAll: () => apiClient.get(API_ENDPOINTS.APPLICATIONS),
+  },
+  upload: {
+    resume: (file: any) => {
+      console.log('API upload called with:', file);
+      return apiClient.post(`${API_ENDPOINTS.APPLICATIONS}/upload/resume`, file);
+    },
   },
 };

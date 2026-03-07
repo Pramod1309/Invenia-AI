@@ -73,6 +73,32 @@ class Database {
         )
       `);
 
+      // Create applications table
+      await this.run(`
+        CREATE TABLE IF NOT EXISTS applications (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          jobId INTEGER NOT NULL,
+          applicantName TEXT NOT NULL,
+          applicantEmail TEXT NOT NULL,
+          applicantPhone TEXT NOT NULL,
+          experience TEXT,
+          education TEXT,
+          coverLetter TEXT,
+          resumeUrl TEXT,
+          resumeUploaded INTEGER DEFAULT 0,
+          testCompleted INTEGER DEFAULT 0,
+          interviewCompleted INTEGER DEFAULT 0,
+          testData TEXT,
+          interviewData TEXT,
+          status TEXT DEFAULT 'pending_stages',
+          overallScore INTEGER DEFAULT 0,
+          aiEvaluation TEXT,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (jobId) REFERENCES jobs (id)
+        )
+      `);
+
       console.log('Database tables initialized successfully');
     } catch (error) {
       console.error('Error initializing tables:', error);
@@ -314,6 +340,178 @@ class Database {
   async incrementJobViews(id) {
     const sql = 'UPDATE jobs SET views = views + 1 WHERE id = ?';
     await this.run(sql, [id]);
+  }
+
+  // Application operations
+  async createApplication(applicationData) {
+    const sql = `
+      INSERT INTO applications (
+        jobId, applicantName, applicantEmail, applicantPhone, experience, 
+        education, coverLetter, resumeUrl, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    
+    const params = [
+      applicationData.jobId,
+      applicationData.applicantInfo.name,
+      applicationData.applicantInfo.email,
+      applicationData.applicantInfo.phone,
+      applicationData.applicantInfo.experience || null,
+      applicationData.applicantInfo.education || null,
+      applicationData.applicantInfo.coverLetter || null,
+      applicationData.applicantInfo.resume || null,
+      applicationData.status || 'pending_stages'
+    ];
+
+    try {
+      await this.run(sql, params);
+      const result = await this.get('SELECT last_insert_rowid() as id');
+      
+      // Update job application count
+      await this.run('UPDATE jobs SET applications = applications + 1 WHERE id = ?', [applicationData.jobId]);
+      
+      return this.getApplicationById(result.id);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async getApplicationById(id) {
+    const sql = 'SELECT * FROM applications WHERE id = ?';
+    const application = await this.get(sql, [id]);
+    
+    if (application) {
+      // Parse JSON fields
+      application.testData = JSON.parse(application.testData || '{}');
+      application.interviewData = JSON.parse(application.interviewData || '[]');
+      application.aiEvaluation = JSON.parse(application.aiEvaluation || '{}');
+      
+      // Convert boolean fields
+      application.resumeUploaded = Boolean(application.resumeUploaded);
+      application.testCompleted = Boolean(application.testCompleted);
+      application.interviewCompleted = Boolean(application.interviewCompleted);
+    }
+    
+    return application;
+  }
+
+  async getApplicationsByJobId(jobId) {
+    const sql = 'SELECT * FROM applications WHERE jobId = ? ORDER BY createdAt DESC';
+    const applications = await this.all(sql, [jobId]);
+    
+    // Parse JSON fields for each application
+    return applications.map(app => ({
+      ...app,
+      testData: JSON.parse(app.testData || '{}'),
+      interviewData: JSON.parse(app.interviewData || '[]'),
+      aiEvaluation: JSON.parse(app.aiEvaluation || '{}'),
+      resumeUploaded: Boolean(app.resumeUploaded),
+      testCompleted: Boolean(app.testCompleted),
+      interviewCompleted: Boolean(app.interviewCompleted)
+    }));
+  }
+
+  async updateApplicationStage(id, stage, data) {
+    const fields = ['status = ?'];
+    const params = [stage];
+
+    if (stage === 'resume_uploaded' && data.resumeUrl) {
+      fields.push('resumeUrl = ?, resumeUploaded = 1');
+      params.push(data.resumeUrl);
+    } else if (stage === 'test_completed' && data.testData) {
+      fields.push('testData = ?, testCompleted = 1');
+      params.push(JSON.stringify(data.testData));
+    } else if (stage === 'interview_completed' && data.interviewData) {
+      fields.push('interviewData = ?, interviewCompleted = 1');
+      params.push(JSON.stringify(data.interviewData));
+    }
+
+    fields.push('updatedAt = CURRENT_TIMESTAMP');
+    params.push(id);
+
+    const sql = `UPDATE applications SET ${fields.join(', ')} WHERE id = ?`;
+    
+    try {
+      await this.run(sql, params);
+      return this.getApplicationById(id);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async submitTest(id, testData) {
+    const sql = `
+      UPDATE applications 
+      SET testData = ?, testCompleted = 1, status = 'test_completed', updatedAt = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `;
+    
+    try {
+      await this.run(sql, [JSON.stringify(testData.testData), id]);
+      return this.getApplicationById(id);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async submitInterview(id, interviewData) {
+    const sql = `
+      UPDATE applications 
+      SET interviewData = ?, interviewCompleted = 1, status = 'interview_completed', updatedAt = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `;
+    
+    try {
+      await this.run(sql, [JSON.stringify(interviewData.interviewData), id]);
+      return this.getApplicationById(id);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async getAllApplications(status = null, page = 1, limit = 10) {
+    let sql = 'SELECT * FROM applications';
+    let params = [];
+    
+    if (status) {
+      sql += ' WHERE status = ?';
+      params.push(status);
+    }
+    
+    sql += ' ORDER BY createdAt DESC LIMIT ? OFFSET ?';
+    params.push(limit, (page - 1) * limit);
+    
+    const applications = await this.all(sql, params);
+    
+    // Parse JSON fields for each application
+    const parsedApplications = applications.map(app => ({
+      ...app,
+      testData: JSON.parse(app.testData || '{}'),
+      interviewData: JSON.parse(app.interviewData || '[]'),
+      aiEvaluation: JSON.parse(app.aiEvaluation || '{}'),
+      resumeUploaded: Boolean(app.resumeUploaded),
+      testCompleted: Boolean(app.testCompleted),
+      interviewCompleted: Boolean(app.interviewCompleted)
+    }));
+
+    // Get total count for pagination
+    let countSql = 'SELECT COUNT(*) as total FROM applications';
+    let countParams = [];
+    if (status) {
+      countSql += ' WHERE status = ?';
+      countParams.push(status);
+    }
+    const totalResult = await this.get(countSql, countParams);
+    
+    return {
+      applications: parsedApplications,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: totalResult.total,
+        pages: Math.ceil(totalResult.total / limit)
+      }
+    };
   }
 
   // Close database connection

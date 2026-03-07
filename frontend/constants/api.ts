@@ -21,6 +21,7 @@ export const API_ENDPOINTS = {
   ROOT: '/',
   USERS: '/users',
   JOBS: '/jobs',
-} as const;
+  APPLICATIONS: '/applications',
+};
 
 export { API_BASE_URL };
