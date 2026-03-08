@@ -64,28 +64,10 @@ export default function IndexPage() {
         return <SplashScreen onAnimationComplete={handleSplashComplete} />;
       case 'welcome':
         return (
-          <View>
-            <WelcomeScreenWithButtons 
-              onSignUp={handleSignUp} 
-              onLogin={handleLogin}
-            />
-            <TouchableOpacity 
-              style={{ backgroundColor: '#007AFF', padding: 10, margin: 10, borderRadius: 5 }}
-              onPress={() => setCurrentScreen('authtest')}
-            >
-              <Text style={{ color: '#fff', fontWeight: 'bold' }}>🧪 Test Auth</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={{ backgroundColor: '#28a745', padding: 10, margin: 10, borderRadius: 5 }}
-              onPress={() => {
-                console.log('🧪 Direct login test');
-                setUserData({ name: 'Test User', email: 'test@example.com' });
-                setCurrentScreen('dashboard');
-              }}
-            >
-              <Text style={{ color: '#fff', fontWeight: 'bold' }}>🎯 Skip to Dashboard</Text>
-            </TouchableOpacity>
-          </View>
+          <WelcomeScreenWithButtons 
+            onSignUp={handleSignUp} 
+            onLogin={handleLogin}
+          />
         );
       case 'signup':
         return (
@@ -98,7 +80,8 @@ export default function IndexPage() {
         return (
           <LoginScreen 
             onBack={handleBack} 
-            onLoginSuccess={handleLoginSuccess} 
+            onLoginSuccess={handleLoginSuccess}
+            onSignUp={handleSignUp}
           />
         );
       case 'account':

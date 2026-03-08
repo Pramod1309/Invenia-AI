@@ -3,9 +3,10 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, StatusBar, 
 import { api } from '../services/api';
 import { API_BASE_URL } from '../constants/api';
 
-export default function LoginScreen({ onBack, onLoginSuccess }: { 
+export default function LoginScreen({ onBack, onLoginSuccess, onSignUp }: { 
   onBack: () => void; 
   onLoginSuccess: (userData: any) => void;
+  onSignUp?: () => void; // Added optional onSignUp prop
 }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -88,6 +89,7 @@ export default function LoginScreen({ onBack, onLoginSuccess }: {
             secureTextEntry
             onSubmitEditing={handleLogin}
             returnKeyType="done"
+            blurOnSubmit={false}
           />
         </View>
 
@@ -111,7 +113,10 @@ export default function LoginScreen({ onBack, onLoginSuccess }: {
           <View style={styles.dividerLine} />
         </View>
 
-        <TouchableOpacity style={styles.signUpLink}>
+        <TouchableOpacity 
+          style={styles.signUpLink}
+          onPress={onSignUp}
+        >
           <Text style={styles.signUpLinkText}>
             Don't have an account? <Text style={styles.signUpLinkHighlight}>Sign Up</Text>
           </Text>

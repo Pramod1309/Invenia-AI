@@ -134,6 +134,7 @@ export default function SignUpScreen({ onBack, onSignUpSuccess }: {
             secureTextEntry
             onSubmitEditing={handleSignUp}
             returnKeyType="done"
+            blurOnSubmit={false}
           />
         </View>
 
@@ -181,11 +182,12 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
     paddingHorizontal: 30,
-    paddingTop: 40,
-    paddingBottom: 20, // Reduced padding for mobile
+    paddingTop: 30, // Reduced from 40
+    paddingBottom: 15, // Further reduced to ensure button visibility
+    justifyContent: 'flex-start', // Changed from space-between
   },
   inputContainer: {
-    marginBottom: 25,
+    marginBottom: 15, // Further reduced from 20
   },
   label: {
     fontSize: 16,
@@ -207,7 +209,8 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     borderRadius: 12,
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 5, // Minimal margin to ensure visibility
+    marginBottom: 10, // Add bottom margin to prevent cutoff
     boxShadow: '0px 4px 8px rgba(31, 41, 55, 0.3)',
     elevation: 8,
   },
